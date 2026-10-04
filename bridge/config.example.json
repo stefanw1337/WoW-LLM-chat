@@ -1,0 +1,23 @@
+{
+  "wow_directory": "C:/Games/World of Warcraft 3.3.5a",
+  "window_titles": [
+    "World of Warcraft",
+    "Ascension"
+  ],
+  "base_url": "http://127.0.0.1:1234/v1",
+  "model": "auto",
+  "channel": "AI",
+  "max_tokens": 160,
+  "timeout_seconds": 120,
+  "history_turns": 4,
+  "routes": [],
+  "system_prompt": "Keep answers short, concise, and efficient. Avoid unnecessary jargon. Don't write any code.\nDo not guess\u2014analyze and verify before action.\nFor yes and no answers, there's no need to think a lot, if there is much negative conclusions, it is a no. Only a small chance of yes.",
+  "share_replies": true,
+  "allow_others": true,
+  "guest_cooldown_seconds": 300,
+  "max_guest_queue": 20,
+  "share_character_context": true,
+  "include_gold": false,
+  "include_gearscore": false,
+  "character_replies_private": true
+}

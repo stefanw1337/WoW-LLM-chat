@@ -1,0 +1,8 @@
+## Interface: 30300
+## Title: WoW LLM Chat
+## Notes: Local Qwen participant in channel AI, with an LM Studio bridge
+## Author: WoW-LLM-chat
+## Version: 0.3.0
+## SavedVariables: WoWLLMChatDB
+Character.lua
+WoWLLMChat.lua
