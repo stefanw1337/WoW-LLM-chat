@@ -66,9 +66,19 @@ end
 local session = tostring(time()) .. "-" .. tostring(math.random(100000,999999))
 local sequence, nextSlot, joinTime, pollTime, scaleTime = 0,1,5,0,0
 local function info(text) DEFAULT_CHAT_FRAME:AddMessage("|cff66ccffWoWLLM:|r " .. text) end
+local joinWarning=false
 local function join()
     if GetChannelName(CHANNEL)==0 then JoinChannelByName(CHANNEL) end
-    if GetChannelName(CHANNEL)>0 then ChatFrame_AddChannel(DEFAULT_CHAT_FRAME,CHANNEL) end
+    if GetChannelName(CHANNEL)>0 then
+        if type(DEFAULT_CHAT_FRAME.AddChannel)=="function" then
+            DEFAULT_CHAT_FRAME:AddChannel(CHANNEL)
+        elseif type(ChatFrame_AddChannel)=="function" then
+            ChatFrame_AddChannel(DEFAULT_CHAT_FRAME,CHANNEL)
+        elseif not joinWarning then
+            joinWarning=true
+            info("Joined AI. Enable AI in this chat window's channel settings to see player messages.")
+        end
+    end
 end
 local function draw()
     if not pending then strip:Hide(); return end
@@ -199,7 +209,15 @@ frame:SetScript("OnEvent",function(self,event,...)
 end)
 frame:SetScript("OnUpdate",function(self,elapsed)
     joinTime=joinTime+elapsed; pollTime=pollTime+elapsed; scaleTime=scaleTime+elapsed
-    if joinTime>=10 then join(); joinTime=0 end
+    if joinTime>=10 then
+        -- Reset before calling client APIs so a failure cannot retry every frame.
+        joinTime=0
+        local ok,reason=pcall(join)
+        if not ok and not joinWarning then
+            joinWarning=true
+            info("Could not attach the AI channel: " .. tostring(reason))
+        end
+    end
     if pollTime>=(pending and 6 or 30) and (pending or nextSlot<=SLOT_COUNT) then poll(); pollTime=0 end
     sendTime=sendTime+elapsed
     if sendTime>=1.5 and #outgoing>0 and GetChannelName(CHANNEL)>0 then
