@@ -1,6 +1,6 @@
 # WoW LLM Chat
 
-Talk to a local language model from the **AI** channel in World of Warcraft 3.3.5a. A Windows companion connects the addon to LM Studio and displays replies as **Qwen3 (MoE)**. Shared mode posts replies through your character so other players can participate.
+Talk to a local language model from the **AI** channel in World of Warcraft 3.3.5a (and one for Forever version). A Windows companion connects the addon to LM Studio and displays replies as **Qwen3 (MoE)**. Shared mode posts replies through your character so other players can participate.
 
 ```text
 [7. AI] [YourCharacter]: How do I bake a chocolate cake?
