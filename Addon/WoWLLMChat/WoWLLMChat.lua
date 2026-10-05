@@ -1,4 +1,15 @@
--- Pixels out; load-on-demand reply slots in. Original WoW 3.3.5 API.
+-- Pixels out; load-on-demand replies in. Legacy and modern client APIs.
+local LoadAddOn = (C_AddOns and C_AddOns.LoadAddOn) or LoadAddOn
+local GetCVar = (C_CVar and C_CVar.GetCVar) or GetCVar
+local SendChat = (C_ChatInfo and C_ChatInfo.SendChatMessage) or SendChatMessage
+local function readable(value) return not (issecretvalue and issecretvalue(value)) end
+local function chatLocked()
+    return C_ChatInfo and C_ChatInfo.InChatMessagingLockdown and C_ChatInfo.InChatMessagingLockdown()
+end
+local function send(text,kind,language,target)
+    if chatLocked() or not SendChat then return false end
+    return pcall(SendChat,text,kind,language,target)
+end
 local CHANNEL, SLOT_COUNT, CELL, COLUMNS = "AI", 2048, 4, 128
 local frame = CreateFrame("Frame")
 local strip = CreateFrame("Frame", "WoWLLMPixelStrip", UIParent)
@@ -14,7 +25,14 @@ db.settings=db.settings or {share_replies=true,allow_others=true,guest_cooldown_
 local settings=db.settings
 local notices={}
 local sendTime=0
-local function isOwner(author) return string.lower(author)==string.lower(UnitName("player") or "") end
+local function isOwner(author)
+    if not readable(author) or type(author)~="string" then return false end
+    local name,realm=UnitName("player")
+    name=name or ""
+    if string.lower(author)==string.lower(name) then return true end
+    realm=realm or (GetNormalizedRealmName and GetNormalizedRealmName()) or (GetRealmName and GetRealmName()) or ""
+    return string.lower(author)==string.lower(name .. "-" .. realm:gsub("%s+",""))
+end
 local function counts()
     local owners,guests=0,0
     for _,entry in ipairs(backlog) do
@@ -43,7 +61,7 @@ local function tell(author,text)
     local key=string.lower(author)
     if time()-(notices[key] or 0)<30 then return end
     notices[key]=time()
-    SendChatMessage("[Qwen3 (MoE)] " .. text,"WHISPER",nil,author)
+    send("[Qwen3 (MoE)] " .. text,"WHISPER",nil,author)
 end
 local session = tostring(time()) .. "-" .. tostring(math.random(100000,999999))
 local sequence, nextSlot, joinTime, pollTime, scaleTime = 0,1,5,0,0
@@ -78,7 +96,8 @@ local function draw()
             t:SetPoint("TOPLEFT",strip,"TOPLEFT",((i-1)%COLUMNS)*CELL,-math.floor((i-1)/COLUMNS)*CELL)
             textures[i]=t
         end
-        t:SetTexture(math.floor(v/4)%2,math.floor(v/2)%2,v%2,1); t:Show()
+        local setColor=t.SetColorTexture or t.SetTexture
+        setColor(t,math.floor(v/4)%2,math.floor(v/2)%2,v%2,1); t:Show()
     end
     for i=#cells+1,#textures do textures[i]:Hide() end
     strip:Show()
@@ -88,7 +107,8 @@ local function beginNext()
     for i,entry in ipairs(backlog) do if isOwner(entry.author) then index=i; break end end
     pending=table.remove(backlog,index); pollTime=0
     if pending and isOwner(pending.author) and settings.share_character_context~=false and WoWLLMCharacterSnapshot then
-        pending.context=WoWLLMCharacterSnapshot(settings)
+        local ok,context=pcall(WoWLLMCharacterSnapshot,settings)
+        pending.context=ok and context or "Character snapshot unavailable: client restricted or unsupported data."
     end
     draw()
 end
@@ -119,12 +139,15 @@ local function display(text,isError,author,forcePrivate)
     end
 end
 local function poll()
+    -- Modern clients may prohibit loading addons while in combat.
+    if InCombatLockdown and InCombatLockdown() then return end
     if nextSlot>SLOT_COUNT then
         info("No reply slots remain. Log out and back in when convenient. The addon will not reload automatically.")
         pending=nil; backlog={}; strip:Hide(); return
     end
     WoWLLMChatReply=nil; WoWLLMChatSettings=nil
-    local loaded,reason=LoadAddOn(string.format("WoWLLMChat_S%04d",nextSlot))
+    local ok,loaded,reason=pcall(LoadAddOn,string.format("WoWLLMChat_S%04d",nextSlot))
+    if not ok then return end
     if not loaded then
         if reason=="MISSING" or reason=="DISABLED" then
             info("Reply addons are missing or disabled. Close the game and run Install.ps1.")
@@ -147,10 +170,13 @@ frame:SetScript("OnEvent",function(self,event,...)
         joinTime=5; info("Joining the AI channel. Start LM Studio and Start-Bridge.cmd. Use /wllm status for details."); return
     end
     local message,author,_,_,_,_,_,_,channelName=...
+    if chatLocked() or not readable(message) or not readable(author) or not readable(channelName) then return end
+    if type(message)~="string" or type(author)~="string" then return end
     if string.lower(channelName or "")~=string.lower(CHANNEL) then return end
     -- Ignore every AI-labelled message, including our public reply echoes.
     if message:match("^%[Qwen3 %(MoE%)") then return end
     local owner=isOwner(author)
+    if owner then author=UnitName("player") end
     if #message>1000 then if owner then info("Your question is too long.") end; return end
     local owners,guests=counts()
     if owner then
@@ -177,11 +203,14 @@ frame:SetScript("OnUpdate",function(self,elapsed)
     if pollTime>=(pending and 6 or 30) and (pending or nextSlot<=SLOT_COUNT) then poll(); pollTime=0 end
     sendTime=sendTime+elapsed
     if sendTime>=1.5 and #outgoing>0 and GetChannelName(CHANNEL)>0 then
-        SendChatMessage(table.remove(outgoing,1),"CHANNEL",nil,GetChannelName(CHANNEL)); sendTime=0
+        if send(outgoing[1],"CHANNEL",nil,GetChannelName(CHANNEL)) then table.remove(outgoing,1) end
+        sendTime=0
     end
     if scaleTime>=2 then
-        local _,h=(GetCVar("gxResolution") or ""):match("(%d+)x(%d+)")
-        strip:SetScale(768/(tonumber(h) or 1080)/UIParent:GetEffectiveScale()); scaleTime=0
+        local h
+        if GetPhysicalScreenSize then local w; w,h=GetPhysicalScreenSize() end
+        if not h then local resolution=GetCVar and GetCVar("gxResolution") or ""; h=tonumber(resolution:match("x(%d+)")) end
+        strip:SetScale(768/(h or 1080)/UIParent:GetEffectiveScale()); scaleTime=0
     end
 end)
 SLASH_WOWLLMCHAT1="/wllm"
@@ -192,6 +221,7 @@ end
 
 -- Preserve the local blue-name rendering without displaying our network echo twice.
 ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL",function(self,event,message,author)
+    if not readable(message) or not readable(author) then return false end
     if isOwner(author) and message:match("^%[Qwen3 %(MoE%)") then return true end
     return false
 end)
